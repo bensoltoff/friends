@@ -16,7 +16,7 @@ episodes <- episodes[!str_detect(episodes, pattern = "outtakes|uncut")]
 # function to scrape a transcript and convert to tidytext data frame
 # url: url of episode transcript
 # n: n-gram
-tidy_episode <- function(url, ngram = 1) {
+tidy_episode <- function(url) {
   # collect text into a corpus
   episode_corpus <- read_html(url) %>%
     html_nodes("p")
@@ -63,9 +63,7 @@ tidy_episode <- function(url, ngram = 1) {
   # convert to tidytext data frame
   episode_tidy <- episode_lines %>%
     unnest_tokens(output = word,
-                  input = line,
-                  token = "ngrams",
-                  n = ngram)
+                  input = line)
   
   return(episode_tidy)
 }
