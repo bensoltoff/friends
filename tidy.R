@@ -14,20 +14,37 @@ episodes <- list.files(path = "season", full.names = TRUE)
 episodes <- episodes[!str_detect(episodes, pattern = "outtakes|uncut")]
 
 # function to scrape a transcript and convert to tidytext data frame
-tidy_episode <- function(url) {
-  ## collect text into a corpus
+# url: url of episode transcript
+# n: n-gram
+tidy_episode <- function(url, ngram = 1) {
+  # collect text into a corpus
   episode_corpus <- read_html(url) %>%
-    html_nodes("p") %>%
-    html_text(trim = TRUE)
+    html_nodes("p")
+  
+  # most transcripts work fine as is
+  if(length(episode_corpus) > 10){
+    episode_corpus <- episode_corpus %>%
+      html_text(trim = TRUE)
+  } else {
+    # for corpa which do not conform to "p" selector tag,
+    # implement manual parsing method
+    episode_corpus <- episode_corpus %>%
+      str_replace_all(pattern = "<.*?>", replacement = "|") %>%
+      str_split(pattern = "\\|") %>%
+      nth(2) %>%
+      str_replace(pattern = "\\n", replacement = "")
+  }
   
   # convert to one-line-per-row data frame
   episode_lines <- data_frame(line = episode_corpus) %>%
+    filter(line != "") %>%
     # detect scene transitions
     mutate(scene = str_detect(line, "Scene"),
            scene_num = cumsum(scene)) %>%
     # remove scene transition lines
-    filter(scene_num != 0,
-           !scene) %>%
+    ## some transcripts don't have scene markers, so only filter
+    ## if they exist
+    {if(sum(.$scene) != 0) filter(., scene_num != 0, !scene) else .} %>%
     select(-scene) %>%
     # determine which character is speaking
     mutate(character = str_extract(line, "\\w+:") %>%
@@ -46,7 +63,9 @@ tidy_episode <- function(url) {
   # convert to tidytext data frame
   episode_tidy <- episode_lines %>%
     unnest_tokens(output = word,
-                  input = line)
+                  input = line,
+                  token = "ngrams",
+                  n = ngram)
   
   return(episode_tidy)
 }
