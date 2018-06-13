@@ -81,4 +81,5 @@ episodes_tidy_all <- data_frame(episode = episodes) %>%
          episode = formatC(episode, width = 4, format = "d", flag = "0")) %>%
   ## two part episodes lose the second number
   separate(col = episode, into = c("season", "episode"),
-           sep = 2, convert = TRUE)
+           sep = 2, convert = TRUE) %>%
+  write_csv("data/friends-tidytext.csv")
