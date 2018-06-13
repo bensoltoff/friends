@@ -30,9 +30,16 @@ episode_lines <- data_frame(episode = parse_number(episode),
   # remove scene transition lines
   filter(scene_num != 0,
          !scene) %>%
+  select(-scene) %>%
   # determine which character is speaking
   mutate(character = str_extract(line, "\\w+:"),
-         character = str_remove(character, ":")) %>%
+         character = str_remove(character, ":"),
+         line = str_remove(line, "\\w+:")) %>%
   # remove lines that are not speech
   filter(!is.na(character))
+
+## convert to tidytext data frame
+episode_tidy <- episode_lines %>%
+  unnest_tokens(output = word,
+                input = line)
 
