@@ -34,6 +34,12 @@ tidy_episode <- function(url) {
              str_remove(":") %>%
              str_to_title,
            line = str_remove(line, "\\w+:")) %>%
+    # deduplicate a few character names
+    mutate(character = recode(character,
+      Rach = "Rachel",
+      Mnca = "Monica",
+      Phoe = "Phoebe"
+    )) %>%
     # remove lines that are not speech
     filter(!is.na(character))
   
@@ -53,7 +59,3 @@ episodes_tidy_all <- data_frame(episode = episodes) %>%
   # expand to one row per token
   unnest(tidy_results) %>%
   mutate(episode = parse_number(episode))
-
-count(episodes_tidy_all, character, sort = TRUE) %>%
-  filter(n > 250) %>%
-  print(n = Inf)
