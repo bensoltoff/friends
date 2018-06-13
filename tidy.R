@@ -76,5 +76,6 @@ episodes_tidy_all <- data_frame(episode = episodes) %>%
   mutate(tidy = map(episode, safely(tidy_episode)),
          tidy_results = transpose(tidy)$result) %>%
   # expand to one row per token
+  filter(! map_lgl(tidy_results, is.null)) %>%
   unnest(tidy_results) %>%
   mutate(episode = parse_number(episode))
