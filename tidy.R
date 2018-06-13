@@ -76,4 +76,9 @@ episodes_tidy_all <- data_frame(episode = episodes) %>%
   # expand to one row per token
   filter(! map_lgl(tidy_results, is.null)) %>%
   unnest(tidy_results) %>%
-  mutate(episode = parse_number(episode))
+  # convert episode to two columns
+  mutate(episode = parse_number(episode),
+         episode = formatC(episode, width = 4, format = "d", flag = "0")) %>%
+  ## two part episodes lose the second number
+  separate(col = episode, into = c("season", "episode"),
+           sep = 2, convert = TRUE)
