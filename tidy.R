@@ -30,8 +30,9 @@ tidy_episode <- function(url) {
            !scene) %>%
     select(-scene) %>%
     # determine which character is speaking
-    mutate(character = str_extract(line, "\\w+:"),
-           character = str_remove(character, ":"),
+    mutate(character = str_extract(line, "\\w+:") %>%
+             str_remove(":") %>%
+             str_to_title,
            line = str_remove(line, "\\w+:")) %>%
     # remove lines that are not speech
     filter(!is.na(character))
@@ -53,4 +54,6 @@ episodes_tidy_all <- data_frame(episode = episodes) %>%
   unnest(tidy_results) %>%
   mutate(episode = parse_number(episode))
 
-
+count(episodes_tidy_all, character, sort = TRUE) %>%
+  filter(n > 250) %>%
+  print(n = Inf)
