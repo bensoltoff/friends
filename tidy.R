@@ -16,7 +16,7 @@ episodes <- episodes[!str_detect(episodes, pattern = "outtakes|uncut")]
 # function to scrape a transcript and convert to tidytext data frame
 # url: url of episode transcript
 # n: n-gram
-tidy_episode <- function(url) {
+tidy_episode <- function(url, ngram = 1) {
   # collect text into a corpus
   episode_corpus <- read_html(url) %>%
     html_nodes("p")
@@ -66,23 +66,53 @@ tidy_episode <- function(url) {
   # convert to tidytext data frame
   episode_tidy <- episode_lines %>%
     unnest_tokens(output = word,
-                  input = line)
+                  input = line,
+                  token = "ngrams",
+                  n = ngram)
   
   return(episode_tidy)
 }
 
 # scrape all the transcripts
-episodes_tidy_all <- data_frame(episode = episodes) %>%
+episodes_all <- data_frame(episode = episodes) %>%
+  # setup to create ngrams 1:5
+  expand(episode, ngram = 1:5) %>%
   # safely tokenize each episode
-  mutate(tidy = map(episode, safely(tidy_episode)),
-         tidy_results = transpose(tidy)$result) %>%
+  mutate(tidy = map2(episode, ngram, safely(tidy_episode)),
+         tidy_results = transpose(tidy)$result)
+
+episodes_tidy_all <- episodes_all %>%
   # expand to one row per token
-  filter(! map_lgl(tidy_results, is.null)) %>%
+  filter(!map_lgl(tidy_results, is.null)) %>%
   unnest(tidy_results) %>%
   # convert episode to two columns
   mutate(episode = parse_number(episode),
          episode = formatC(episode, width = 4, format = "d", flag = "0")) %>%
-  ## two part episodes lose the second number
+  # two part episodes lose the second number
   separate(col = episode, into = c("season", "episode"),
            sep = 2, convert = TRUE) %>%
+  # create token ID column
+  mutate(id = row_number()) %>%
+  select(id, everything())
+
+# remove stop words
+friends_stop_words <- episodes_tidy_all %>%
+  # separate ngrams into separate columns
+  separate(col = word,
+           into = c("word1", "word2", "word3", "word4", "word5"),
+           sep = " ") %>%
+  # find last word
+  mutate(last = if_else(ngram == 5, word5,
+                        if_else(ngram == 4, word4,
+                                if_else(ngram == 3, word3,
+                                        if_else(ngram == 2, word2, word1))))) %>%
+  # remove tokens where the first or last word is a stop word
+  filter(word1 %in% stop_words$word |
+           last %in% stop_words$word) %>%
+  # keep only id variables
+  select(id:scene_num)
+
+episodes_tidy_final <- episodes_tidy_all %>%
+  anti_join(friends_stop_words) %>%
   write_csv("data/friends-tidytext.csv")
+
