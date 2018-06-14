@@ -35,6 +35,9 @@ tidy_episode <- function(url) {
       str_replace(pattern = "\\n", replacement = "")
   }
   
+  # fix unicode apostrophes
+  episode_corpus <- str_replace_all(episode_corpus, "\\u0092", "'")
+  
   # convert to one-line-per-row data frame
   episode_lines <- data_frame(line = episode_corpus) %>%
     filter(line != "") %>%
