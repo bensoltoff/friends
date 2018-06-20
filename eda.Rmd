@@ -1,0 +1,253 @@
+---
+title: "EDA on Friends transcripts"
+output: html_notebook
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+```{r packages, cache = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(tidytext)
+library(stringr)
+library(tm)
+library(topicmodels)
+
+set.seed(1234)
+theme_set(theme_minimal())
+```
+
+# Import data
+
+```{r import-data}
+(friends <- read_csv("data/friends-tidytext.csv"))
+
+(friends_core <- friends %>%
+  filter(character %in% c("Rachel", "Monica", "Phoebe", "Chandler", "Joey", "Ross")))
+```
+
+# Most common tokens
+
+```{r wordcloud}
+library(wordcloud2)
+library(magrittr)
+
+friends %>%
+  count(word, sort = TRUE) %>%
+  rename(freq = n) %T>%
+  print %>%
+  wordcloud2
+```
+
+# Most predominant tokens per major character
+
+```{r tf-idf}
+# get tf-idf per character
+(friends_tfidf <- friends_core %>%
+   count(character, ngram, word) %>%
+   bind_tf_idf(term = word, document = character, n = n))
+```
+
+```{r tfidf-plot}
+# sort the data frame and convert word to a factor column
+friends_tfidf <- friends_tfidf %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(word = factor(word, levels = rev(unique(word))))
+
+# graph the top 10 tokens for each character
+friends_tfidf %>%
+  group_by(character) %>%
+  top_n(20) %>%
+  ungroup() %>%
+  ggplot(aes(word, tf_idf)) +
+  geom_col() +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~ character, scales = "free") +
+  coord_flip()
+
+# separate graphs for each ngram
+plot_friends_tfidf <- function(friends_tfidf, n_gram, n_top = 10){
+  friends_tfidf %>%
+    filter(ngram == n_gram) %>%
+    group_by(character) %>%
+    top_n(n_top) %>%
+    ungroup() %>%
+    ggplot(aes(word, tf_idf)) +
+    geom_col() +
+    labs(x = NULL, y = "tf-idf") +
+    facet_wrap(~ character, scales = "free") +
+    coord_flip()
+}
+
+seq(from = 1, to = 5) %>%
+  map(~ plot_friends_tfidf(friends_tfidf, n_gram = .x))
+```
+
+# Word co-occurrences and correlations
+
+```{r pairwise-count}
+friends_stop_words
+
+friends_pairs <- friends %>%
+  filter(ngram == 1) %>%
+  mutate(id_scene = str_c(season, episode, scene_num, sep = "_")) %>%
+  pairwise_count(item = word, feature = id_scene, sort = TRUE, upper = FALSE)
+friends_pairs
+```
+
+```{r pairwise-plot}
+library(igraph)
+library(ggraph)
+
+set.seed(1234)
+
+friends_pairs %>%
+  filter(n >= 250) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n, edge_width = n), edge_colour = "cyan4") +
+  geom_node_point(size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE, 
+                 point.padding = unit(0.2, "lines")) +
+  theme_void()
+```
+
+# Estimate LDA model
+
+## Scene-level model
+
+### Create document-term matrix
+
+```{r dtm}
+# remove non-informative terms
+## get token count-per-scene
+friends_count <- friends %>%
+  mutate(id = str_c(season, episode, scene_num, sep = "_")) %>%
+  count(id, season, episode, scene_num, word)
+
+## total number of scenes in corpus
+n_scene <- n_distinct(friends_count$id)
+
+## only keep tokens that appear in greater than 1% but fewer than
+## 25% of scenes. determined via visual inspection of distribution
+friends_keep <- friends_count %>%
+  count(word) %>%
+  mutate(pct = nn / n_scene) %>%
+  filter(pct <= .25,
+         pct >= .01)
+
+## create the document-term matrix
+(friends_dtm <- friends_count %>%
+  semi_join(friends_keep) %>%
+  cast_dtm(id, word, n))
+```
+
+### Pick `k`
+
+```{r lda-k}
+library("ldatuning")
+
+result <- FindTopicsNumber(
+  friends_dtm,
+  topics = seq(from = 5, to = 50, by = 3),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  control = list(seed = 1234),
+  mc.cores = 6L,
+  verbose = TRUE
+)
+
+FindTopicsNumber_plot(result)
+```
+
+### `K = 50`
+
+```{r lda-50}
+lda_50 <- LDA(friends_dtm, k = 50, control = list(seed = 1234))
+lda_50
+```
+
+```{r ldavis}
+library(LDAvis)
+library(slam)
+
+json <- createJSON(phi = posterior(lda_50)$terms,
+                   theta = posterior(lda_50)$topics,
+                   doc.length = row_sums(friends_dtm),
+                   vocab = colnames(friends_dtm),
+                   term.frequency = col_sums(friends_dtm))
+serVis(json)
+```
+
+## Episode-level model
+
+### Create document-term matrix
+
+```{r dtm-ep}
+# remove non-informative terms
+## get token count-per-scene
+friends_count_ep <- friends %>%
+  mutate(id = str_c(season, episode, sep = "_")) %>%
+  count(id, season, episode, word)
+
+## total number of scenes in corpus
+n_ep <- n_distinct(friends_count_ep$id)
+
+## only keep tokens that appear in greater than 1% but fewer than
+## 25% of scenes. determined via visual inspection of distribution
+friends_keep_ep <- friends_count_ep %>%
+  count(word) %>%
+  mutate(pct = nn / n_ep) %>%
+  filter(pct <= .93,
+         pct >= .05)
+
+## create the document-term matrix
+(friends_ep_dtm <- friends_count_ep %>%
+  semi_join(friends_keep_ep) %>%
+  cast_dtm(id, word, n))
+```
+
+### Pick `k`
+
+```{r lda-k-ep}
+library("ldatuning")
+
+result_ep <- FindTopicsNumber(
+  friends_ep_dtm,
+  topics = seq(from = 5, to = 50, by = 3),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  control = list(seed = 1234),
+  mc.cores = 6L,
+  verbose = TRUE
+)
+
+FindTopicsNumber_plot(result_ep)
+```
+
+### `K = 50`
+
+```{r lda-50-ep}
+lda_50_ep <- LDA(friends_ep_dtm, k = 50, control = list(seed = 1234))
+lda_50_ep
+```
+
+```{r ldavis-ep}
+json_ep <- createJSON(phi = posterior(lda_50_ep)$terms,
+                   theta = posterior(lda_50_ep)$topics,
+                   doc.length = row_sums(friends_ep_dtm),
+                   vocab = colnames(friends_ep_dtm),
+                   term.frequency = col_sums(friends_ep_dtm))
+serVis(json_ep)
+```
+
+
+
+
+
+
+
+
+
+
+
+
