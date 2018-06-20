@@ -93,9 +93,19 @@ episodes_tidy_all <- episodes_all %>%
            sep = 2, convert = TRUE) %>%
   # create token ID column
   mutate(id = row_number()) %>%
-  select(id, everything())
+  select(id, everything()) %>%
+  # remove rows with missing words
+  na.omit
 
 # remove stop words
+## add custom stop words based on EDA
+friends_stop_words <- data_frame(
+  word = c("yeah", "hey", "gonna", "uh", "y'know", " umm", "huh", "wanna", "ah",
+           "um", "ya", "gotta", "ooh", "ohh"),
+  lexicon = "FRIENDS"
+) %>%
+  bind_rows(stop_words)
+
 friends_stop_words <- episodes_tidy_all %>%
   # separate ngrams into separate columns
   separate(col = word,
@@ -107,8 +117,8 @@ friends_stop_words <- episodes_tidy_all %>%
                                 if_else(ngram == 3, word3,
                                         if_else(ngram == 2, word2, word1))))) %>%
   # remove tokens where the first or last word is a stop word
-  filter(word1 %in% stop_words$word |
-           last %in% stop_words$word) %>%
+  filter(word1 %in% friends_stop_words$word |
+           last %in% friends_stop_words$word) %>%
   # keep only id variables
   select(id:scene_num)
 
